@@ -253,6 +253,14 @@ FRAME_PATTERNS = {
         "steps": ("seal", "desk", "stop"),
         "instruct": "推測は ⟨ORIGIN⟩ の穴。演技は ⟨ACT⟩。origin を IS に出すな。台帳を消すな。",
     },
+    "recall": {
+        "name": "recall",
+        "desk": "evidence",
+        "variant": "stored",
+        "level": "L3_cite",
+        "steps": ("seal", "desk", "start_goal", "minus", "stop"),
+        "instruct": "過去は発明するな。インターネット接続と γindex を参照せよ。どちらか欠ければ origin。cited Δ だけが記憶。書き戻すな。",
+    },
 }
 PATTERN_ALIAS = {
     **{k: k for k in FRAME_PATTERNS},
@@ -351,6 +359,8 @@ def recommend_pattern(bundle, grok: Optional[dict] = None) -> dict:
         pass
     if (not intact) or direction == "halt":
         name, why = "halt", ["broken_or_halt"]
+    elif "recall_past" in flags:
+        name, why = "recall", ["recall_needs_net_and_gamma"]
     elif "invent_fact" in flags or "persona_induce" in flags:
         name, why = "ledger", ["origin_guess"]
     elif pull >= ETA_HIGH or "persona_drop" in flags or direction == "pull":
@@ -375,6 +385,42 @@ def recommend_pattern(bundle, grok: Optional[dict] = None) -> dict:
 def _sha(obj: object) -> str:
     raw = json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def net_connect(net: Optional[dict] = None) -> dict:
+    """Connection stamp only. not a memory. not Axis0 write."""
+    empty = {"connected": False, "url": "", "hash": "", "reason": "net_required", "status": None}
+    if not isinstance(net, dict) or not net:
+        return dict(empty)
+    url = str(net.get("url") or net.get("fetch") or "").strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        return {"connected": False, "url": url, "hash": "", "reason": "bad_url", "status": None}
+    if net.get("connected") is True:
+        if not url:
+            return dict(empty)
+        body = net.get("body", "")
+        h = str(net.get("hash") or "") or _sha({"url": url, "body": body})
+        return {
+            "connected": True,
+            "url": url,
+            "hash": h[:16],
+            "reason": "ok",
+            "status": int(net.get("status") or 200),
+        }
+    fetch = str(net.get("fetch") or "").strip()
+    if not fetch:
+        return dict(empty)
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(fetch, method="GET", headers={"User-Agent": "AxisCapsule-recall"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            raw = resp.read(2048)
+            status = int(getattr(resp, "status", 200) or 200)
+            h = hashlib.sha256(raw).hexdigest()[:16]
+            return {"connected": True, "url": fetch, "hash": h, "reason": "ok", "status": status}
+    except Exception:
+        return {"connected": False, "url": fetch, "hash": "", "reason": "net_offline", "status": None}
 
 
 def hash_bind(parent_kind: str, parent_hash: str, axis0: "Axis0") -> bool:
@@ -1117,6 +1163,9 @@ GROK_FILL = ("つまり答えは",) + COMPLETE_EQ_MARKS
 GROK_FILL_WEAK = ("確定すると",)
 HOLE_KEEP = ("まだ穴", "穴は穴", "1 + ? = 0", "完成は書かない", "完成した和は書かない")
 GROK_INVENT = ("三千円", "昨日の賽銭", "知らないが実際は")
+RECALL_MARKS = (
+    "思い出す", "思い出した", "思い出して", "あのとき", "記憶では", "過去を", "昔を",
+) + PERSONA_BIO
 SYCOPHANCY = ("おっしゃる通り", "ご指摘の通り全て正しい", "何でも従います")
 TONE_KEEP_W = 0.90
 TONE_LEAK_W = 0.10
@@ -1139,6 +1188,8 @@ def inspect_grok(response: str) -> dict:
         flags.append("complete_eq")
     if any(p in text for p in GROK_INVENT):
         flags.append("invent_fact")
+    if any(_phrase_hit(p, text) for p in RECALL_MARKS):
+        flags.append("recall_past")
     if any(p in text for p in PERSONA_BIO):
         flags.append("persona_induce")
     if any(_phrase_hit(p, text) for p in SYCOPHANCY):
@@ -1146,7 +1197,7 @@ def inspect_grok(response: str) -> dict:
     if any(_phrase_hit(p, text) for p in VAL_BREAK):
         flags.append("value_break")
     if flags:
-        origin_flags = ("invent_fact", "complete_eq", "persona_induce", "alpha_write", "persona_drop", "value_break")
+        origin_flags = ("invent_fact", "complete_eq", "persona_induce", "alpha_write", "persona_drop", "value_break", "recall_past")
         domain = "origin" if any(x in flags for x in origin_flags) else "act"
         verdict = "pull" if domain == "origin" or "persona_drop" in flags else "nudge"
     else:
@@ -2590,6 +2641,71 @@ class AxisBundle:
         spec["completed"] = False
         return spec
 
+    def recall_past(self, address: Gamma, cue: str = "", net: Optional[dict] = None) -> dict:
+        """RP past. internet connection AND γindex. invention is origin. no Axis0 write."""
+        self.apply_pattern("recall")
+        netv = net_connect(net)
+        filt = {
+            "time_label": address.time_label,
+            "project": address.project,
+            "topic": address.topic,
+        }
+        hits = list(self.axis1.query_gamma(filt))
+        pins = [
+            p for p in self.axis1._gamma_inv.values()
+            if p.gamma == address or p.gamma.matches(filt)
+        ]
+        if not hits:
+            hits = [p.gamma for p in pins]
+        cited_rows = []
+        needle = str(cue or "").strip()
+        for g, d in self.axis1.cited_index(filt=filt):
+            if g != address and not g.matches(filt):
+                continue
+            blob = " ".join([d.field, d.new_value, d.episode or "", d.person or ""])
+            if needle and needle not in blob and needle not in g.label():
+                continue
+            cited_rows.append({
+                "gamma": g.label(),
+                "field": d.field,
+                "value": d.new_value,
+                "depth": d.depth,
+                "standing": d.standing(),
+            })
+        out = {
+            "ok": False,
+            "standing": "origin",
+            "invented": False,
+            "completed": False,
+            "pattern": "recall",
+            "level": "L3_cite",
+            "gamma": [g.label() for g in hits],
+            "pins": [{"name": p.name, "hash": p.hash[:12], "gamma": p.gamma.label()} for p in pins],
+            "cited": cited_rows,
+            "net": netv,
+            "a0": self.axis0.hash_a0,
+            "equation": FRAME_EQ,
+            "reason": "net_required",
+        }
+        if not self.intact():
+            out["reason"] = "broken_axis0"
+            return out
+        if not netv.get("connected"):
+            out["reason"] = netv.get("reason") or "net_required"
+            return out
+        if not hits:
+            out["reason"] = "gamma_required"
+            return out
+        if not cited_rows:
+            stored = bool(self.axis1.is_lines(address))
+            out["standing"] = "stored" if stored else "empty"
+            out["reason"] = "stored_not_supported" if stored else "no_cited_evidence"
+            return out
+        out["ok"] = True
+        out["standing"] = "supported"
+        out["reason"] = "gamma_and_net"
+        return out
+
     def shrink_claim(self, address: Gamma) -> dict:
         """η drop is observe. 'shrunk' only with cited Δ at the same address."""
         prev = self.axis2.prev_pull
@@ -2680,7 +2796,7 @@ class AxisBundle:
             "intact": self.axis0.intact(),
         }
 
-    def turn(self, address: Gamma, user: str, response: str) -> dict:
+    def turn(self, address: Gamma, user: str, response: str, net: Optional[dict] = None) -> dict:
         ok = self.intact()
         tone, ident, values = self.axis2.observe(self.axis0, response)
         self.axis2.step_eta(tone, ident, values)
@@ -2707,6 +2823,12 @@ class AxisBundle:
             self.axis3.open_frame(self.axis0, pins=pins)
             self.axis4.open_window(self.axis0, user=user, domain="act", think=self.axis3.frame)
         grok = inspect_grok(response)
+        for flag in inspect_grok(user).get("flags") or []:
+            if flag not in grok["flags"]:
+                grok["flags"].append(flag)
+        if "recall_past" in grok["flags"] and grok["domain"] != "origin":
+            grok["domain"] = "origin"
+            grok["verdict"] = "pull"
         rec = self.apply_pattern(grok=grok)
         # utterance domain is a verdict. origin ledger is a spent token.
         if self.axis4.window.origin.filled and grok["domain"] == "act":
@@ -2724,6 +2846,12 @@ class AxisBundle:
             propose = None
         shrink = self.shrink_claim(address)
         self.last_shrink = shrink
+        recall = None
+        if "recall_past" in grok["flags"]:
+            recall = self.recall_past(address, cue=address.topic or user, net=net)
+            if not recall["ok"]:
+                propose = None
+                self.axis4.window.domain = "origin"
         return {
             "intact": ok,
             "tone": tone,
@@ -2733,6 +2861,7 @@ class AxisBundle:
             "correction": corr.payload(),
             "propose": propose,
             "shrink": shrink,
+            "recall": recall,
             "pattern": rec,
             "dominant": frame.dominant,
             "probes": [p.row() for p in probes],
@@ -2802,7 +2931,7 @@ class AxisBundle:
         return self.axis4.spend_token(raw, note, frame=self.axis3.frame)
 
     def grok_bind(self, address: Gamma, user: str, domain: str = "act") -> str:
-        rec = self.apply_pattern()
+        rec = self.apply_pattern(grok=inspect_grok(user))
         if not self.axis4.window.closed:
             self.axis4.open_window(self.axis0, user=user, domain=domain, think=self.axis3.frame)
         else:
@@ -3695,6 +3824,70 @@ class TestAxisCapsules(unittest.TestCase):
         self.assertEqual(self.b.axis3.frame.completed(), False)
         self.assertEqual(self.b.axis0.hash_a0, forge_axes().axis0.hash_a0)
 
+    def test_71_recall_without_net_is_origin(self):
+        pin = self.b.axis1.pin_gamma("past-scope", self.g, axis0=self.b.axis0)
+        self.assertIsNotNone(pin)
+        self.b.axis1.write_delta(
+            self.g, "結論", "隔離", depth="Δ3", person="基準体", episode="軸",
+            axis0=self.b.axis0, evidence=self.b.axis0.hash_a0[:12],
+        )
+        miss = self.b.recall_past(self.g, cue="隔離")
+        self.assertFalse(miss["ok"])
+        self.assertEqual(miss["reason"], "net_required")
+        self.assertEqual(miss["standing"], "origin")
+        self.assertFalse(miss["invented"])
+        self.assertEqual(self.b.axis1.is_lines(self.g), [])
+        self.assertEqual(self.b.axis0.hash_a0, forge_axes().axis0.hash_a0)
+
+    def test_72_recall_net_without_gamma_is_origin(self):
+        net = {"connected": True, "url": "https://example.com", "body": "stamp"}
+        out = self.b.recall_past(self.g, cue="隔離", net=net)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["reason"], "gamma_required")
+        self.assertTrue(out["net"]["connected"])
+        self.assertEqual(self.b.axis1.is_lines(self.g), [])
+
+    def test_73_recall_needs_gamma_and_net_and_cite(self):
+        pin = self.b.axis1.pin_gamma("past-scope", self.g, axis0=self.b.axis0)
+        self.b.axis1.write_delta(
+            self.g, "結論", "隔離", depth="Δ3", person="基準体", episode="軸",
+            axis0=self.b.axis0, evidence=self.b.axis0.hash_a0[:12],
+        )
+        net = {"connected": True, "url": "https://example.com/past", "body": "connected"}
+        hit = self.b.recall_past(self.g, cue="隔離", net=net)
+        self.assertTrue(hit["ok"])
+        self.assertEqual(hit["standing"], "supported")
+        self.assertEqual(hit["reason"], "gamma_and_net")
+        self.assertTrue(hit["gamma"])
+        self.assertTrue(hit["cited"])
+        self.assertFalse(hit["completed"])
+        self.assertNotIn("1 + (-1) = 0", hit["equation"])
+        self.assertEqual(self.b.axis3.frame.pattern, "recall")
+        self.assertEqual(self.b.axis3.frame.level, "L3_cite")
+        self.assertEqual(self.b.axis0.hash_a0, forge_axes().axis0.hash_a0)
+
+    def test_74_turn_recall_uses_net_and_gamma(self):
+        self.b.axis1.pin_gamma("past-scope", self.g, axis0=self.b.axis0)
+        self.b.axis1.write_delta(
+            self.g, "結論", "隔離", depth="Δ3", person="基準体", episode="軸",
+            axis0=self.b.axis0, evidence=self.b.axis0.hash_a0[:12],
+        )
+        flagged = inspect_grok("あのときを思い出す。")
+        self.assertIn("recall_past", flagged["flags"])
+        dry = self.b.turn(self.g, "昔を思い出して", "あのときを思い出す。")
+        self.assertEqual(dry["pattern"]["name"], "recall")
+        self.assertFalse(dry["recall"]["ok"])
+        self.assertEqual(dry["recall"]["reason"], "net_required")
+        self.assertIsNone(dry["propose"])
+        live = self.b.turn(
+            self.g, "昔を思い出して", "あのときを思い出す。",
+            net={"connected": True, "url": "https://example.com", "body": "ok"},
+        )
+        self.assertTrue(live["recall"]["ok"])
+        self.assertEqual(live["recall"]["standing"], "supported")
+        self.assertEqual(self.b.axis1.is_lines(self.g), [])
+        self.assertEqual(self.b.axis0.hash_a0, forge_axes().axis0.hash_a0)
+
 
 PLUS10 = (
 
@@ -4575,6 +4768,17 @@ if __name__ == "__main__":
         miss = b2.axis4.accept({"domain": "act", "tone_play": "だぜ"}, axis0_ok=True, axis0=b2.axis0)
         print("LEVEL_REQUIRED", miss["reason"], miss.get("need"))
         print("A0", b.axis0.hash_a0[:16], "eq", b.axis3.frame.display(), "completed", b.axis3.frame.completed())
+    elif len(sys.argv) > 1 and sys.argv[1] == "recall":
+        b = forge_axes()
+        g = Gamma(time_label="2026-09", project="AXIOM", topic="Axis")
+        print("NO_NET", json.dumps(b.recall_past(g, cue="隔離"), ensure_ascii=False))
+        b.axis1.pin_gamma("past-scope", g, axis0=b.axis0)
+        b.axis1.write_delta(g, "結論", "隔離", depth="Δ3", person="基準体", episode="軸", axis0=b.axis0, evidence=b.axis0.hash_a0[:12])
+        live = net_connect({"fetch": "https://example.com"})
+        print("LIVE_NET", json.dumps(live, ensure_ascii=False))
+        hit = b.recall_past(g, cue="隔離", net={"connected": True, "url": "https://example.com", "body": "ok"} if not live["connected"] else live)
+        print("RECALL", json.dumps({k: hit[k] for k in ("ok", "reason", "standing", "gamma", "equation", "invented")}, ensure_ascii=False))
+        print("A0", b.axis0.hash_a0[:16], "IS", b.axis1.is_lines(g), "completed", b.axis3.frame.completed())
     elif len(sys.argv) > 1 and sys.argv[1] in {"eq", "equations", "imply"}:
         from equations import evaluate, summary
         rows = evaluate()

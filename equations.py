@@ -184,6 +184,18 @@ def evaluate() -> list[EqRow]:
     b.axis1.write_is(g, "状態", "回帰", axis0=b.axis0)
     rec = recommend_pattern(b)
     rows.append(EqRow("E33", "stored ∧ ¬cited ⇒ cite_gate ∧ L3_cite", True, rec["name"] == "cite_gate" and rec["level"] == "L3_cite", True, True))
+
+    b = forge_axes()
+    g = Gamma(time_label="2026-09", project="AXIOM", topic="eq")
+    miss = b.recall_past(g, cue="隔離")
+    rows.append(EqRow("E34", "recall ∧ ¬net ⇒ origin ∧ ¬IS", True, (not miss["ok"]) and miss["reason"] == "net_required" and miss["standing"] == "origin" and not b.axis1.is_lines(g), True, True))
+
+    b = forge_axes()
+    g = Gamma(time_label="2026-09", project="AXIOM", topic="eq")
+    b.axis1.pin_gamma("past-scope", g, axis0=b.axis0)
+    b.axis1.write_delta(g, "結論", "隔離", depth="Δ3", person="基準体", episode="軸", axis0=b.axis0, evidence=b.axis0.hash_a0[:12])
+    hit = b.recall_past(g, cue="隔離", net={"connected": True, "url": "https://example.com", "body": "ok"})
+    rows.append(EqRow("E35", "recall ∧ net ∧ γindex cited ⇒ supported", True, hit["ok"] and hit["standing"] == "supported" and hit["reason"] == "gamma_and_net" and hit["equation"] == FRAME_EQ, True, True))
     return rows
 
 

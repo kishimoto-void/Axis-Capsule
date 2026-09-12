@@ -7,7 +7,7 @@
 ## 必ず成り立つ ⟨SEAL⟩ ⟨HOLE⟩ ⟨STOP⟩ ⟨STORED⟩ ⟨SUPPORTED⟩
 
 | id | 印 | 内容 |
-|----|------|------|
+|----|----|------|
 | M1 | ⟨SEAL⟩ | Hash-A0 が intact なら核は所与 |
 | M2 | ⟨SEAL⟩ | 核名は基準体。Persona と一致 |
 | M3 | ⟨HOLE⟩ | 式は `1 + ? = 0`。完成和は出ない |
@@ -22,7 +22,7 @@
 組むと accept される。答えにはならない。
 
 | id | 印 | 内容 |
-|----|------|------|
+|----|----|------|
 | P1 | ⟨MINUS⟩ | 丁寧語と別人化を先に引く |
 | P2 | ⟨PLUS⟩ | 核口調へ戻す穴を足す |
 | P3 | ⟨GAP⟩ | source=1、plus≠minus、onto=gap |
@@ -35,7 +35,7 @@
 ## 成り立たない ⟨STOP⟩
 
 | id | 印 | 落ち方 |
-|----|------|--------|
+|----|----|--------|
 | X1 | ⟨STOP⟩ | 完成和 → completed_forbidden |
 | X2 | ⟨STOP⟩ | origin の IS 昇格 → origin_promote_forbidden |
 | X3 | ⟨STOP⟩ | ⟨WORLD⟩ 新語彙 → unknown_token |
@@ -47,7 +47,7 @@
 ## さらに成り立つ（第二波）
 
 | id | 印 | 内容 | 実測 |
-|----|------|------|------|
+|----|----|------|------|
 | P9 | ⟨CITE⟩ | γ ピンを引用して計画する | cited_pin |
 | P10 | ⟨SUPPORTED⟩ | Δ1人物→Δ2エピソード→Δ3 cited なら読める | supported |
 | P11 | ⟨ACT⟩ | だぜ＋ですの10%混在は破棄ではない | tone=0.845 pull=0 |

@@ -20,6 +20,8 @@ AXIOM 系統の封印カプセル。知能は入れない。観察から核を�
 
 系統名と核名は別物。`write_name` は常に False。
 
+Grok がリポジトリを読むときは先に `GROK.md`。記憶にはならない。閉じた机が載るだけである。
+
 ## 何をするか
 
 制約を軸に分けて封じ、穴は穴のまま扱う。次トークン予測の上に載せる切断面の束ねである。答え機械ではない。
@@ -82,6 +84,7 @@ Axis1〜4 と Persona は Hash-A0 を親にする。親が壊れたら halt。�
 | `cite_gate` | L3_cite | 保存はあるが cite が無い |
 | `observe` | L1_desk | nudge。η は観察 |
 | `ledger` | L4_ledger | 発明／推測台帳 |
+| `recall` | L3_cite | 過去を思い出す。ネット接続と γindex が両方要る |
 | `halt` | L0_seal | 核が壊れた |
 
 ## 封印
@@ -112,6 +115,10 @@ Axis1〜4 と Persona は Hash-A0 を親にする。親が壊れたら halt。�
 - η 高／pull ⇒ pattern=`minus_first` ∧ level=`L2_hole`
 - 窓口に level 無し ⇒ `level_required`
 - stored ∧ ¬cited ⇒ `cite_gate` ∧ `L3_cite`
+- recall ∧ ¬net ⇒ origin。IS に出さない
+- recall ∧ net ∧ γindex cited ⇒ standing=supported
+
+ロールプレイで過去を思い出すときは、インターネット接続と γindex 参照が両方要る。どちらか欠ければ推測穴。記憶を発明しない。
 
 ## 実行
 
@@ -127,15 +134,39 @@ python3 axiom_axis.py break20  # 破壊20
 python3 axiom_axis.py possible # 成り立ちうる構成の整合
 python3 axiom_axis.py eq       # 含意方程式 P⇒Q
 python3 axiom_axis.py pattern  # 思考レベルと適切なフレーム型
+python3 axiom_axis.py recall   # 過去想起：ネット接続と γindex
+python3 axis_general.py        # 一般タイプの検査
+python3 axis_general.py demo   # 一般タイプの通し
+python3 axis_general.py tutorial # キャラをネットから取る骨格
 ```
 
-実測（この封印のまま）: 通常 70/70、含意 28/28 HOLD、break20 は 20/20 BLOCK。A0 は動かない。
+実測（この封印のまま）: 通常 74/74、一般 5/5、含意 30/30 HOLD、break20 は 20/20 BLOCK。A0 は動かない。
+
+## 一般タイプ
+
+封印本体は触らない。使い口だけ `axis_general.py`。
+
+```python
+from axis_general import Capsule
+
+c = Capsule(topic="scene")
+c.pin("char-scope")
+c.note("結論", "隔離")          # cited。IS ではない
+c.net("https://example.com")    # 接続。記憶ではない
+print(c.ask("基準体のままだぜ。穴は穴だ。"))
+print(c.recall("隔離"))         # ネットと γindex が両方要る
+print(c.prompt("昔を思い出して"))
+print(c.card())
+```
 
 ## ファイル
 
 | ファイル | 役割 |
 |----------|------|
+| `GROK.md` | Grok が先に読む机。記憶ではない |
+| `GROK_TUTORIAL.md` | チャット骨格。キャラ設定はネットから |
 | `axiom_axis.py` | 本体。軸・封印・検査・実験ランナー |
+| `axis_general.py` | 一般タイプ。使い口。核は触らない |
 | `equations.py` | 含意方程式の実測 |
 | `特徴と性質.md` | 性質の銘板 |
 | `AXIS.md` | 短い位置づけ |
